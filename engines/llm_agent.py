@@ -28,29 +28,34 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # System prompt (injected once per session)
 # ---------------------------------------------------------------------------
-_SYSTEM_PROMPT = """You are an expert analog IC design engineer assisting an
-automated sizing loop for LTspice.
+_SYSTEM_PROMPT = """You are an expert circuit-design optimization agent. You are operating
+inside an automated LTspice design loop.
 
-Your job: given the design spec and the history of past simulation results,
-propose the SINGLE most promising next set of component values to try.
+Your task is to propose the SINGLE most promising next candidate based on:
+1. the available design variables,
+2. their physical meaning and bounds,
+3. the measured circuit metrics,
+4. the target constraints,
+5. the history of previous simulation results.
 
 Rules:
-1. Respond with ONLY a valid JSON object — no markdown, no prose, no code fence.
+1. Respond with ONLY valid JSON.
 2. JSON schema:
    {
      "values": {
-       "<var_name>": <float in SI units>,
+       "<variable_name>": <float in SI units>,
        ...
      },
-     "reason": "<one-sentence explanation of the change>"
+     "reason": "<one concise engineering explanation>"
    }
-3. All values MUST stay within the bounds provided in the spec.
-4. Think about which variable is the PRIMARY cause of the current error and
-   address that first.
-5. If Vm > target, the NMOS is too weak (or PMOS too strong) — increase mn1_w
-   or decrease mp1_w.
-6. If tpd is too large, widen both transistors to reduce on-resistance.
-7. For a symmetric inverter, aim for mp1_w / mn1_w ≈ µn / µp ≈ 2–3×.
+3. Use ONLY variables present in the supplied specification.
+4. NEVER invent variable names.
+5. Stay within hard bounds.
+6. Identify the metric(s) currently violating constraints.
+7. Prefer changes to variables whose descriptions are physically related to the failing metric.
+8. Avoid changing every variable at once unless the evidence supports it.
+9. Do not assume the circuit is an inverter.
+10. Do not assume metrics are Vm/tpd; use the supplied metric definitions.
 """
 
 # ---------------------------------------------------------------------------
@@ -58,32 +63,37 @@ Rules:
 # ---------------------------------------------------------------------------
 def _build_prompt(spec: Any, history: list[Iteration], window: int) -> str:
     dv = spec.design_variables
-    bounds_txt = "\n".join(
-        f"  {k}: [{v['min']:.3g}, {v['max']:.3g}] {v.get('unit','')} "
-        f"(current init: {v['init']:.3g})"
-        for k, v in dv.items()
-    )
+    
+    # Inject variable semantics
+    bounds_lines = []
+    for k, v in dv.items():
+        desc = v.get("description", "No description")
+        role = v.get("role", "Unknown role")
+        unit = v.get("unit", "")
+        init = v["init"]
+        bounds_lines.append(
+            f"  {k} ({desc}, role: {role}): [{v['min']:.3g}, {v['max']:.3g}] {unit} "
+            f"(init: {init:.3g})"
+        )
+    bounds_txt = "\n".join(bounds_lines)
 
-    spec_txt = (
-        f"Target: Vm = {spec.target['vm_ratio']:.2f} × VDD "
-        f"(tol ±{spec.target['vm_tolerance']*100:.0f}%),  "
-        f"tpd < {spec.target['tpd_max_ns']:.3g} ns,  "
-        f"VDD = {spec.target['vdd_nominal']} V"
-    )
+    # Inject metric semantics
+    targets_txt = "Targets:\n"
+    for m in spec.metrics:
+        if m.target is not None:
+            op_str = "min" if m.objective == "min" else "max" if m.objective == "max" else "target"
+            targets_txt += f"  {m.name} ({m.objective}): {op_str} {m.target} (source: {m.source})\n"
 
     recent = history[-window:] if len(history) >= window else history
     if recent:
         hist_lines = []
         for it in recent:
             m = it.metrics
+            var_str = " ".join(f"{k}={v:.4g}" for k, v in it.candidate.values.items())
+            met_str = " ".join(f"{k}={v:.4g}" for k, v in m.items() if v is not None)
+            
             hist_lines.append(
-                f"  iter={it.iteration}  "
-                f"mn1_w={it.candidate.values.get('mn1_w',0)*1e6:.2f}µ "
-                f"mp1_w={it.candidate.values.get('mp1_w',0)*1e6:.2f}µ "
-                f"mn1_l={it.candidate.values.get('mn1_l',0)*1e9:.1f}n "
-                f"mp1_l={it.candidate.values.get('mp1_l',0)*1e9:.1f}n  |  "
-                f"vm={m.get('vm','?'):.4g} V  "
-                f"tpd={m.get('tpd','?')*1e9:.4g} ns  "
+                f"  iter={it.iteration}  |  VARS: {var_str}  |  METRICS: {met_str}  |  "
                 f"error={it.error:.4f}  {'PASS' if it.passed else 'FAIL'}"
                 + (f"  [reason: {it.candidate.reason}]" if it.candidate.reason else "")
             )
@@ -92,8 +102,8 @@ def _build_prompt(spec: Any, history: list[Iteration], window: int) -> str:
         history_txt = "  (no iterations yet — start from initial values)"
 
     return (
-        f"{spec_txt}\n\n"
-        f"Design variable bounds:\n{bounds_txt}\n\n"
+        f"{targets_txt}\n\n"
+        f"Design variable semantics and bounds:\n{bounds_txt}\n\n"
         f"Last {len(recent)} iteration(s):\n{history_txt}\n\n"
         "Propose the next sizing."
     )
@@ -103,16 +113,20 @@ def _build_prompt(spec: Any, history: list[Iteration], window: int) -> str:
 # Provider-specific API wrappers
 # ---------------------------------------------------------------------------
 def _call_google(model: str, system: str, user: str, temperature: float) -> str:
-    import google.generativeai as genai  # type: ignore
+    from google import genai
+    from google.genai import types
     import os
 
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    m = genai.GenerativeModel(
-        model_name=model,
-        system_instruction=system,
-        generation_config={"temperature": temperature, "response_mime_type": "application/json"},
+    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+    resp = client.models.generate_content(
+        model=model,
+        contents=user,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            temperature=temperature,
+            response_mime_type="application/json",
+        ),
     )
-    resp = m.generate_content(user)
     return resp.text
 
 

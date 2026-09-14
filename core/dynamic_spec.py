@@ -10,12 +10,71 @@ user can inspect and edit it.
 """
 from __future__ import annotations
 
+import ast
+import logging
 import math
+import operator
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import yaml
+
+logger = logging.getLogger(__name__)
+
+_ALLOWED_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+}
+_ALLOWED_UNARY = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+_ALLOWED_FUNCS = {
+    "abs": abs,
+    "min": min,
+    "max": max,
+    "sqrt": math.sqrt,
+    "log": math.log,
+    "exp": math.exp,
+}
+
+def safe_eval_formula(expr: str, variables: dict[str, float]) -> float:
+    tree = ast.parse(expr, mode="eval")
+    def visit(node):
+        if isinstance(node, ast.Expression):
+            return visit(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return float(node.value)
+            raise ValueError("Unsupported constant")
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return variables[node.id]
+            if node.id in _ALLOWED_FUNCS:
+                return _ALLOWED_FUNCS[node.id]
+            raise ValueError(f"Unknown name: {node.id}")
+        if isinstance(node, ast.BinOp):
+            op = _ALLOWED_BINOPS.get(type(node.op))
+            if op is None:
+                raise ValueError("Operator not allowed")
+            return op(visit(node.left), visit(node.right))
+        if isinstance(node, ast.UnaryOp):
+            op = _ALLOWED_UNARY.get(type(node.op))
+            if op is None:
+                raise ValueError("Unary operator not allowed")
+            return op(visit(node.operand))
+        if isinstance(node, ast.Call):
+            fn = visit(node.func)
+            return fn(*(visit(arg) for arg in node.args))
+        raise ValueError(
+            f"Unsupported expression node: {type(node).__name__}"
+        )
+    return float(visit(tree))
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +139,16 @@ class DynamicSpec:
     # Performance requirements
     metric_targets: list[MetricTarget]
 
+    @property
+    def metrics(self) -> list[MetricTarget]:
+        return self.metric_targets
+
+    @metrics.setter
+    def metrics(self, value: list[MetricTarget]):
+        self.metric_targets = value
+
+    vdd_nominal: float = 1.8
+
     # Which .meas names to extract from each log
     meas_dc:   list[str] = field(default_factory=list)
     meas_tran: list[str] = field(default_factory=list)
@@ -131,10 +200,6 @@ class DynamicSpec:
     def initial_values(self) -> dict[str, float]:
         return {k: v["init"] for k, v in self.design_variables.items()}
 
-    @property
-    def vdd_nominal(self) -> float:
-        return self.budget.get("vdd_nominal", 1.8)
-
     # -----------------------------------------------------------------------
     # Core scoring — works for any set of metrics
     # -----------------------------------------------------------------------
@@ -153,9 +218,11 @@ class DynamicSpec:
                     for k in dir(math):
                         if not k.startswith("_"):
                             local_vars[k] = getattr(math, k)
-                    enriched[mt.name] = eval(mt.formula, {"__builtins__": {}}, local_vars)
-                except Exception:
+                    # Evaluate safely
+                    enriched[mt.name] = safe_eval_formula(mt.formula, local_vars)
+                except Exception as e:
                     enriched[mt.name] = float("nan")
+                    logger.debug("Failed to evaluate formula '%s': %s", mt.formula, e)
 
         total_error = 0.0
         all_passed = True

@@ -82,10 +82,8 @@ class BayesOptEngine:
         """Seed the study with an initial candidate (run 0)."""
         if self._study is None:
             self._study = self._build_study()
-        trial, _ = self._ask()
-        # Override the suggested values with the initial point
-        # (Optuna still records them; next suggestions will explore from here)
-        logger.info("BayesOpt warm-started with initial values: %s", initial_values)
+        self._study.enqueue_trial(initial_values)
+        logger.info("BayesOpt enqueued initial values: %s", initial_values)
 
     def propose_next(
         self, history: list[Iteration], spec: Any

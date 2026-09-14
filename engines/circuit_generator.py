@@ -263,9 +263,21 @@ class CircuitGenerator:
         tran_text = data.get("netlist_tran", "")
 
         # Ensure model cards are present
-        for name, text in [("DC", dc_text), ("TRAN", tran_text)]:
-            if "LEVEL=3" not in text:
-                logger.warning("%s netlist missing model cards — appending", name)
+        def _ensure_model_cards(text: str) -> str:
+            if "LEVEL=3" not in text.upper():
+                return text.rstrip() + "\n\n" + _MODEL_CARDS + "\n"
+            return text
+
+        dc_text = _ensure_model_cards(dc_text)
+        tran_text = _ensure_model_cards(tran_text)
+
+        # Semantic Validation
+        from engines.semantic_validator import validate_semantics
+        sem_errors_dc = validate_semantics(dc_text, intent)
+        sem_errors_tran = validate_semantics(tran_text, intent)
+        if sem_errors_dc or sem_errors_tran:
+            errors = sem_errors_dc + sem_errors_tran
+            raise ValueError(f"Semantic validation failed:\n" + "\n".join(errors))
 
         if not dc_text:
             raise ValueError("LLM returned empty DC netlist")
