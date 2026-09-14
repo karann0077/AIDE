@@ -4,111 +4,291 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![LTspice](https://img.shields.io/badge/Simulator-LTspice-red.svg)](https://www.analog.com/ltspice)
+[![Optuna](https://img.shields.io/badge/Optimization-Optuna-blueviolet.svg)](https://optuna.org/)
 
-![Project Demo Placeholder](docs/demo_placeholder.png) *(Add a GIF or screenshot of the Copilot running here)*
+**An AI-driven analog design copilot that converts natural-language specifications into simulation-verified, optimized transistor sizing.**
 
-**AIDE** is your automated **"Copilot for LTspice"**. Just describe the circuit you want in plain English, and AIDE handles the rest. It generates the SPICE code, validates it against LTspice, and automatically optimizes transistor sizes to meet your performance targets (like delay, power, and noise margins) using Bayesian Optimization or AI.
-
-Say goodbye to manually tweaking widths and lengths and running endless trial-and-error simulations.
+AIDE combines **LLM-based circuit generation, LTspice validation, Bayesian optimization, Monte Carlo analysis, and PVT testing** into an automated closed-loop design flow.
 
 </div>
 
 ---
 
-## 🌟 What This Project Does
+## 📌 What AIDE Does
 
-AIDE automates the most tedious part of analog circuit design: sizing components.
+Analog transistor sizing is usually iterative: choose device sizes, run LTspice, inspect waveforms, adjust parameters, and repeat until the design meets its targets.
 
-Imagine you need a 6T SRAM cell with a read static noise margin (RSNM) of 250mV and leakage power under 1nW. Instead of guessing transistor sizes, you simply type that requirement into AIDE. 
+AIDE turns that process into an automated optimization loop.
 
-1. **AI Generation:** The AI writes the initial SPICE netlist for the circuit.
-2. **Self-Healing:** If the AI makes a SPICE syntax mistake, AIDE catches the LTspice error, feeds it back to the AI, and the AI fixes its own code.
-3. **Headless Optimization:** AIDE sweeps through thousands of possible transistor sizes automatically, running headless LTspice simulations in the background.
-4. **Reliability Testing:** Once it finds a working design, it rigorously tests it across 200 Monte Carlo statistical variations and extreme Process/Voltage/Temperature (PVT) corners.
-5. **Final Report:** You get a fully sized, production-ready `.cir` file and a beautiful graphical report of its performance.
+```text
+Natural-language specification
+            ↓
+      LLM circuit generation
+            ↓
+     SPICE/netlist validation
+            ↓
+        LTspice simulation
+            ↓
+      Result extraction
+            ↓
+   Bayesian / LLM optimization
+            ↓
+      Best design candidate
+            ↓
+       PVT + Monte Carlo
+            ↓
+       Final report
+```
+
+For example, a specification such as:
+
+> **Design a CMOS inverter with VDD = 1.8 V, switching point near 0.5×VDD, and propagation delay below 200 ps.**
+
+can be passed directly to the copilot. The specification layer in `spec.yaml` defines the circuit, search bounds, targets, PVT corners, Monte Carlo tolerance, and optimization budget. fileciteturn10file0
 
 ---
 
-## 🚀 How to Run AIDE on Your Computer
+## ✨ Key Capabilities
 
-Running AIDE is easy. Open your terminal (Bash) and follow these simple steps:
+### 🤖 1. LLM-driven circuit generation
+AIDE converts a natural-language analog design request into an initial SPICE representation and identifies the design variables that may be optimized.
 
-### 1. Prerequisites
-You must have **LTspice** installed on your computer. (AIDE works on both Mac and Windows). You also need Python 3.10 or newer.
+### 🩹 2. Self-healing simulation loop
+Generated SPICE is validated through LTspice. When the generated circuit contains a simulation error, AIDE captures the failure and feeds the relevant error information back into the agent so it can correct the candidate instead of stopping the whole workflow.
 
-### 2. Download and Install
+### 📐 3. Bayesian optimization
+The default optimization engine uses **Optuna** to intelligently explore transistor widths and lengths rather than performing a naïve brute-force sweep.
+
+Each trial follows:
+
+```text
+Candidate device sizes
+        ↓
+ Generate/edit SPICE
+        ↓
+    LTspice run
+        ↓
+ Parse simulation metrics
+        ↓
+   Objective score
+        ↓
+ Next candidate
+```
+
+### 🧪 4. PVT + Monte Carlo robustness testing
+After optimization, AIDE evaluates the selected design across configurable temperature and supply corners and runs statistical variation experiments to estimate robustness and yield.
+
+The current example specification evaluates **−40°C, 27°C, and 125°C** with **VDD ±10%**, together with a **10% device-tolerance Monte Carlo target**. fileciteturn10file0
+
+### 📊 5. Automated reporting
+The final stage produces visual summaries of the optimization process and reliability analysis so that the engineer can inspect convergence and final performance without manually collecting simulation results.
+
+---
+
+## 🖥️ Screenshots
+
+### 1. LTspice simulation
+
+![LTspice simulation](screenshots/ltspice.png)
+
+The LTspice view shows the actual circuit simulation used as the physics/measurement backend. **AIDE does not replace the simulator; it automates the surrounding design loop.**
+
+### 2. Optimization / terminal workflow
+
+![Optimization workflow](screenshots/terminal1.png)
+
+This view shows the agentic optimization process as AIDE iterates over candidate device sizes, evaluates the simulated metrics, and searches toward the target.
+
+### 3. Optimization progress
+
+![Optimization progress](screenshots/terminal2.png)
+
+AIDE exposes the iterative search so the optimization process is observable rather than being a black box.
+
+### 4. Final output / report
+
+![AIDE output](screenshots/output.png)
+
+The generated output summarizes the final candidate and the measured performance used to decide whether the design satisfies the requested specification.
+
+---
+
+## 🧠 Architecture
+
+```text
+                           ┌──────────────────────┐
+                           │ Natural Language Spec│
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │   LLM Agent / Parser  │
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │   SPICE Netlist       │
+                           │ Generation / Editing  │
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │ Semantic + Netlist   │
+                           │      Validation      │
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │      LTspice          │
+                           │   Simulation Engine   │
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │ Result / Metric Parser│
+                           └──────────┬───────────┘
+                                      ↓
+                    ┌─────────────────┴─────────────────┐
+                    ↓                                   ↓
+          ┌──────────────────┐                ┌──────────────────┐
+          │ Bayesian Optuna  │                │    LLM Engine    │
+          │    Optimizer     │                │  (alternative)   │
+          └────────┬─────────┘                └────────┬─────────┘
+                   └─────────────────┬─────────────────┘
+                                     ↓
+                           ┌──────────────────────┐
+                           │ Best Design Candidate│
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │      PVT / MC         │
+                           │ Reliability Analysis │
+                           └──────────┬───────────┘
+                                      ↓
+                           ┌──────────────────────┐
+                           │     Final Report      │
+                           └──────────────────────┘
+```
+
+### Core implementation layers
+
+| Layer | Responsibility |
+|---|---|
+| `core/` | Specification handling, simulation execution, result parsing, validation, and netlist editing |
+| `engines/` | Bayesian optimization, LLM agent, circuit generation, and semantic/netlist validation |
+| `reliability/` | PVT and Monte Carlo evaluation |
+| `templates/` | Reusable LTspice circuit templates |
+| `report.py` | Automated result/report generation |
+| `spec.yaml` | Single source of truth for circuit target, variables, limits, corners, and run budget |
+
+The repository is deliberately modular so that the simulator, optimizer, circuit generator, validators, and reliability stages can evolve independently. fileciteturn9file0
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.10+
+- LTspice
+- Google Gemini API key for the LLM path
+
+### Install
+
 ```bash
-# Clone the repository to your computer
 git clone https://github.com/karann0077/AIDE.git
-
-# Enter the project folder
-cd AIDE/agentic-ltspice
-
-# Install the required Python packages
+cd AIDE
 pip install -r requirements.txt
 ```
 
-### 3. Add Your AI Key
-AIDE uses Google's AI (Gemini) to write the code. You need a free API key from [Google AI Studio](https://aistudio.google.com/).
+Create your environment file:
+
 ```bash
-# Copy the example environment file
 cp .env.example .env
-
-# Open .env in a text editor and paste your Google API key:
-# GOOGLE_API_KEY=your_key_here
 ```
 
-### 4. Talk to the Copilot!
-You can now ask the Copilot to design a circuit for you. 
+Then configure:
+
 ```bash
-python copilot.py "Design a 6T CMOS SRAM cell with a 1.8 V supply. Ensure reliable read and write operation, with a read static noise margin (RSNM) of at least 250 mV."
+GOOGLE_API_KEY=your_key_here
 ```
 
-If you just run `python copilot.py` without any text, it will open an interactive chat where you can talk back and forth with the AI!
+### Run a design request
+
+```bash
+python copilot.py "Design a CMOS inverter with a 1.8 V supply, switching point near 0.5VDD, and propagation delay below 200 ps."
+```
+
+The same entry point can be used interactively by running:
+
+```bash
+python copilot.py
+```
 
 ---
 
-## 📸 See It In Action (Demo)
+## ⚙️ Example Specification
 
-![SRAM Optimization Demo](docs/sram_optimization_demo.png) *(Add a picture of the terminal output showing the iteration process here)*
+The current `spec.yaml` uses a CMOS inverter target with:
 
-![Final Reliability Report](docs/reliability_report.png) *(Add a picture of the generated report.png showing the graphs here)*
+```yaml
+target:
+  vm_ratio: 0.5
+  vm_tolerance: 0.05
+  tpd_max_ns: 0.20
+  vdd_nominal: 1.8
+```
 
-AIDE outputs a beautiful 6-panel graph showing how it converged on the perfect transistor sizes, including the Monte Carlo yield histogram.
+and exposes transistor width/length bounds to the optimization engine. fileciteturn10file0
 
----
-
-## 🧠 How It Works (In Simple Language)
-
-Here is exactly what happens under the hood when you press enter:
-
-1. **The Brain (LLM):** AIDE sends your prompt to Google Gemini. Gemini creates the initial SPICE file and defines a "Schema" (the variables it is allowed to change, like `w_pu` for pull-up width, and the target goals).
-2. **The Validator:** AIDE runs this raw SPICE file in LTspice. If LTspice crashes, AIDE reads the red error text, sends it back to Gemini, and says "Fix this."
-3. **The Optimizer (BayesOpt):** Once the file runs, AIDE hands the controls over to a mathematical engine called Optuna. Optuna intelligently guesses new sizes for the transistors, runs LTspice (which takes ~40 milliseconds), checks the results, and guesses again. It does this until the targets are met.
-4. **The Stress Test:** The best design is subjected to a "Monte Carlo" simulation—running the circuit 200 times with tiny, randomized manufacturing defects injected into the transistors to ensure the design is robust enough for real-world silicon fabrication.
-
-### Two Modes of Operation
-- **`--engine bayes` (Default):** Uses pure math to find the right sizes. It is incredibly fast and highly reliable.
-- **`--engine llm`:** Uses the AI to guess the sizes! The AI looks at the history of failed simulations and uses engineering logic to decide what to tweak next.
+This makes the workflow **specification-driven** instead of hard-coding a single transistor-sizing experiment.
 
 ---
 
-## 🛠️ Edge Cases Handled
+## 🔬 Optimization Engines
 
-AIDE is built to be robust. It won't crash just because the AI hallucinates.
+### `--engine bayes`
 
-| Problem | How AIDE Handles It |
+The default path uses **Bayesian optimization**. This is the recommended mode for repeatable automated sizing because the optimizer learns from previous trials and focuses simulation budget on promising regions.
+
+### `--engine llm`
+
+The alternative mode lets the LLM propose sizing changes using the observed simulation history and engineering context.
+
+The important architectural distinction is that **LTspice remains the source of truth for circuit behavior**. Optimization and LLM components propose candidates; simulation determines whether those candidates actually work.
+
+---
+
+## 🧪 Reliability Validation
+
+The reliability stage is designed to answer a more useful question than simply:
+
+> "Did one nominal simulation pass?"
+
+AIDE also asks:
+
+- Does the circuit remain within specification across temperature?
+- What happens when the supply changes?
+- How sensitive is performance to device variation?
+- What fraction of randomized trials remain within the target?
+
+This is why the project goes beyond a one-shot SPICE generation demo and becomes a **closed-loop analog design exploration workflow**.
+
+---
+
+## 🛡️ Robustness & Edge Cases
+
+AIDE contains explicit handling for several practical automation problems:
+
+| Failure / Edge Case | Handling |
 |---|---|
-| **LTspice crashes** | Detected via missing `.raw` files; scored as a massive failure so the optimizer avoids that sizing region. |
-| **AI guesses crazy sizes** | All guesses are hard-clamped to realistic minimums and maximums (e.g., 200nm to 20µm) *before* reaching LTspice. |
-| **Relative Path Crashes on Mac** | AIDE resolves all file paths to absolute paths to prevent the notorious macOS LTspice "code 255" crash. |
-| **Mac Log Encoding** | macOS LTspice outputs weird `UTF-16-LE` text logs. AIDE detects the BOM and decodes it flawlessly. |
+| LTspice simulation failure | Detect failed runs and penalize invalid candidates instead of crashing the optimization loop |
+| Out-of-range transistor sizes | Clamp candidate variables to configured search bounds |
+| macOS path issues | Normalize simulation paths to absolute paths |
+| LTspice log encoding differences | Detect and decode platform-specific text output |
+| Invalid generated netlists | Run validation before treating a candidate as usable |
 
 ---
 
-## 🧪 For Developers: Running the Tests
+## 🧪 Testing
 
-AIDE includes a suite of offline unit tests that don't require LTspice to be open.
+The repository includes offline tests that can be run without an active LTspice session:
 
 ```bash
 python -m pytest tests/ -v
@@ -116,9 +296,56 @@ python -m pytest tests/ -v
 
 ---
 
+## 🎯 Why This Is Different
+
+Traditional analog design automation typically requires the engineer to manually connect multiple pieces:
+
+```text
+Specification
+   ↓
+Manual schematic/netlist editing
+   ↓
+Manual simulation
+   ↓
+Manual measurement
+   ↓
+Manual sizing changes
+   ↓
+Repeat
+```
+
+AIDE closes that loop:
+
+```text
+Specification
+      ↓
+     AIDE
+      ↓
+Candidate generation
+      ↓
+Simulation
+      ↓
+Measurement
+      ↓
+Optimization
+      ↓
+Reliability validation
+      ↓
+Final design
+```
+
+That makes AIDE less like a chatbot and more like a **design-space exploration and automation framework around LTspice**.
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+---
+
 <div align="center">
 
-Built as a proof-of-concept for agentic analog design automation.  
-**The optimizer finds the numbers. The agent explains the reasoning. LTspice does the physics.**
+**The agent proposes. LTspice measures. The optimizer searches. Reliability analysis validates.**
 
 </div>
