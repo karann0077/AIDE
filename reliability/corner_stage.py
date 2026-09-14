@@ -39,6 +39,22 @@ SIGMA_MARGIN = 3.0
 
 
 # ---------------------------------------------------------------------------
+# Monte Carlo Model Parameters
+# ---------------------------------------------------------------------------
+_MC_MODELS = """\
+.param VTH_NOM_N=0.5
+.param VTH_NOM_P=-0.5
+.param VTH_N_MC={VTH_NOM_N * (1+mc(mc_run, {tol}))}
+.param VTH_P_MC={VTH_NOM_P * (1+mc(mc_run, {tol}))}
+
+.model NMOS_MC NMOS (LEVEL=3 TOX=4e-9 VTO={VTH_N_MC} UO=450 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+.model PMOS_MC PMOS (LEVEL=3 TOX=4e-9 VTO={VTH_P_MC} UO=150 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+"""
+
+
+# ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 @dataclass
@@ -46,12 +62,17 @@ class CornerResult:
     """Outcome of the reliability stage."""
     passed: bool
     # If failed, suggest a tightened vm_ratio target for the inner loop
-    suggested_vm_ratio: Optional[float] = None
-    suggested_tpd_max_ns: Optional[float] = None
+    suggested_vm_ratio: float | None = None
+    suggested_tpd_max_ns: float | None = None
+    # MC stats
     mc_vm_mean: float = float("nan")
     mc_vm_std: float = float("nan")
     mc_tpd_mean: float = float("nan")
     mc_tpd_std: float = float("nan")
+    # MC Samples
+    mc_vm_samples: list[float] = field(default_factory=list)
+    mc_tpd_samples: list[float] = field(default_factory=list)
+    # Corner stats
     corner_worst_vm: float = float("nan")
     corner_worst_tpd: float = float("nan")
     details: dict = field(default_factory=dict)
@@ -82,27 +103,27 @@ class CornerStage:
         self._simulator = simulator or LTspice
 
     # ------------------------------------------------------------------
-    def run(self, winning_netlist: Path) -> CornerResult:
+    def run(self, winning_dc_netlist: Path, winning_tran_netlist: Path) -> CornerResult:
         """
-        Full reliability check.  Returns a CornerResult.
+        Run reliability suite on the winning DC and TRAN netlists.
+        Returns metrics and PASS/FAIL boolean.
         """
-        logger.info("=== Reliability Stage: starting ===")
-
-        mc_metrics = self._run_monte_carlo(winning_netlist)
-        corner_metrics = self._run_corners(winning_netlist)
+        logger.info("Starting Monte Carlo and PVT Corners (N=%d)...", MC_RUNS)
+        mc_metrics = self._run_monte_carlo(winning_tran_netlist)
+        corner_metrics = self._run_corners(winning_dc_netlist, winning_tran_netlist)
 
         return self._analyse(mc_metrics, corner_metrics)
 
     # ------------------------------------------------------------------
-    def _run_monte_carlo(self, netlist: Path) -> list[dict[str, float]]:
+    def _run_monte_carlo(self, tran_netlist: Path) -> list[dict[str, float]]:
         """
         Generate and run a Monte Carlo netlist.
         Returns a list of per-run metric dicts.
         """
-        mc_dir = self.sim_root / "monte_carlo"
+        mc_dir = self.sim_root / "mc"
         mc_dir.mkdir(parents=True, exist_ok=True)
-        mc_net = mc_dir / "inverter_mc.net"
-        shutil.copy2(netlist, mc_net)
+        mc_net = mc_dir / f"{self.spec.circuit_name}_mc.net"
+        shutil.copy2(tran_netlist, mc_net)
 
         tol = self.spec.corners.get("tolerance_pct", 10) / 100.0
 
@@ -110,11 +131,14 @@ class CornerStage:
         spice_ed = SpiceEditor(str(mc_net))
         spice_ed.add_instructions(
             f".step param mc_run 1 {MC_RUNS} 1",
-            f"* tolerance applied via model parameter variation",
-            f".param vth0_n_var='0.5*(1+mc(mc_run,{tol}))'",
-            f".param vth0_p_var='-0.5*(1+mc(mc_run,{tol}))'",
+            _MC_MODELS.format(tol=tol),
         )
         spice_ed.save_netlist(str(mc_net))
+
+        # We need to change the models in the netlist from NMOS to NMOS_MC and PMOS to PMOS_MC
+        text = mc_net.read_text()
+        text = text.replace("NMOS W=", "NMOS_MC W=").replace("PMOS W=", "PMOS_MC W=")
+        mc_net.write_text(text)
 
         runner = SimRunner(
             output_folder=str(mc_dir),
@@ -124,10 +148,10 @@ class CornerStage:
         runner.wait_completion(timeout=600)
 
         # Parse stepped results
-        return self._parse_stepped(mc_dir / "inverter_mc.log")
+        return self._parse_stepped(mc_dir / f"{self.spec.circuit_name}_mc.log")
 
     # ------------------------------------------------------------------
-    def _run_corners(self, netlist: Path) -> list[dict[str, float]]:
+    def _run_corners(self, dc_netlist: Path, tran_netlist: Path) -> list[dict[str, float]]:
         """
         Run worst-case corners: cross of temp × VDD.
         """
@@ -142,28 +166,35 @@ class CornerStage:
                 cname = f"T{temp:+d}_V{vdd_pct:+d}"
                 c_dir = self.sim_root / "corners" / cname
                 c_dir.mkdir(parents=True, exist_ok=True)
-                c_net = c_dir / "inverter_corner.net"
-                shutil.copy2(netlist, c_net)
+                
+                c_dc_net = c_dir / f"{self.spec.circuit_name}_corner_dc.net"
+                c_tran_net = c_dir / f"{self.spec.circuit_name}_corner_tran.net"
+                shutil.copy2(dc_netlist, c_dc_net)
+                shutil.copy2(tran_netlist, c_tran_net)
 
-                spice_ed = SpiceEditor(str(c_net))
-                spice_ed.set_parameters(temp=str(temp), vdd=str(vdd))
-                # Update VDD source value in the netlist
-                try:
-                    spice_ed.set_component_value("VDD", str(vdd))
-                except Exception:
-                    pass  # some netlists use .param vdd
-                spice_ed.save_netlist(str(c_net))
+                # Update VDD and Temp in both
+                for net in (c_dc_net, c_tran_net):
+                    spice_ed = SpiceEditor(str(net))
+                    spice_ed.set_parameters(temp=str(temp), vdd=str(vdd))
+                    try:
+                        spice_ed.set_component_value("VDD", str(vdd))
+                    except Exception:
+                        pass
+                    spice_ed.save_netlist(str(net))
 
                 runner = SimRunner(
                     output_folder=str(c_dir),
                     simulator=self._simulator,
                 )
-                runner.run(str(c_net))
+                runner.run(str(c_dc_net))
+                runner.run(str(c_tran_net))
                 runner.wait_completion(timeout=120)
 
-                log_p = c_dir / "inverter_corner.log"
-                from core.result_parser import parse_log
-                metrics = parse_log(log_p)
+                log_dc = c_dir / f"{self.spec.circuit_name}_corner_dc.log"
+                log_tran = c_dir / f"{self.spec.circuit_name}_corner_tran.log"
+                
+                from core.result_parser import extract_metrics
+                metrics = extract_metrics(dc_log=log_dc, tran_log=log_tran)
                 metrics["corner"] = cname
                 corner_results.append(metrics)
                 logger.info(
@@ -226,24 +257,51 @@ class CornerStage:
         vm_target = self.spec.vm_target
         tpd_max = self.spec.tpd_max
 
+        if not corner_metrics:
+            return CornerResult(
+                passed=False,
+                details={"reason": "no_corner_results"},
+            )
+
+        valid_corners = []
+        for metric in corner_metrics:
+            vm = metric.get("vm")
+            tpd = metric.get("tpd")
+            if vm is not None and math.isfinite(vm) and tpd is not None and math.isfinite(tpd):
+                valid_corners.append(metric)
+                
+        if len(valid_corners) != len(corner_metrics):
+            return CornerResult(
+                passed=False,
+                details={"reason": "invalid_corner_measurements"},
+            )
+
         # Corner worst-case
-        corner_worst_vm = min(
-            (abs(m.get("vm", vm_target) - vm_target) for m in corner_metrics), default=0.0
+        corner_worst_vm = max(
+            (abs(float(m.get("vm", float("nan"))) - vm_target) for m in corner_metrics if math.isfinite(float(m.get("vm", float("nan"))))), 
+            default=float("inf"),
         )
         corner_worst_tpd = max(
             (m.get("tpd", 0.0) for m in corner_metrics), default=0.0
         )
 
-        # Sigma check for MC
-        if not math.isnan(mc_vm_mean) and mc_vm_std > 0:
-            vm_sigma = abs(mc_vm_mean - vm_target) / mc_vm_std
-        else:
-            vm_sigma = math.inf
-
-        if not math.isnan(mc_tpd_mean) and mc_tpd_std > 0:
-            tpd_sigma = (tpd_max - mc_tpd_mean) / mc_tpd_std
-        else:
-            tpd_sigma = math.inf
+        def _valid_sigma_margin(mean: float, std: float, limit: float, is_target: bool = False) -> tuple[bool, float]:
+            if not math.isfinite(mean) or not math.isfinite(std) or std <= 0:
+                return False, float("nan")
+            if is_target:
+                distance = abs(mean - limit)
+                allowance = self.spec.target["vm_tolerance"] * limit
+                margin = (allowance - distance) / std
+            else:
+                margin = (limit - mean) / std
+            return math.isfinite(margin), margin
+            
+        vm_sigma_ok, vm_sigma = _valid_sigma_margin(mc_vm_mean, mc_vm_std, vm_target, is_target=True)
+        tpd_sigma_ok, tpd_sigma = _valid_sigma_margin(mc_tpd_mean, mc_tpd_std, tpd_max)
+        
+        mc_vm_ok = vm_sigma_ok and vm_sigma >= SIGMA_MARGIN
+        mc_tpd_ok = tpd_sigma_ok and tpd_sigma >= SIGMA_MARGIN
+        mc_ok = mc_vm_ok and mc_tpd_ok
 
         logger.info(
             "MC  vm: mean=%.4g std=%.4g  σ_margin=%.2f",
@@ -282,12 +340,29 @@ class CornerStage:
                     self.spec.target["vm_ratio"],
                 )
             if not math.isnan(mc_tpd_std):
-                suggested_tpd_max_ns = (tpd_max - SIGMA_MARGIN * mc_tpd_std) * 1e9
+                new_tpd_max = tpd_max - SIGMA_MARGIN * mc_tpd_std
+                if math.isfinite(new_tpd_max):
+                    new_tpd_max = max(new_tpd_max, 1e-15)
+                else:
+                    new_tpd_max = None
+                suggested_tpd_max_ns = (new_tpd_max * 1e9 if new_tpd_max is not None else None)
+                
                 logger.info(
-                    "Tightened tpd_max suggestion: %.4f ns (was %.4f ns)",
-                    suggested_tpd_max_ns,
+                    "Tightened tpd_max suggestion: %s ns (was %.4f ns)",
+                    f"{suggested_tpd_max_ns:.4f}" if suggested_tpd_max_ns else "None",
                     tpd_max * 1e9,
                 )
+
+        # Compute yield
+        total_mc = len(vms) if vms else 0
+        mc_yield_pct = 0.0
+        if total_mc > 0:
+            passes = 0
+            allowance = self.spec.target["vm_tolerance"] * vm_target
+            for vm_s, tpd_s in zip(vms, tpds):
+                if abs(vm_s - vm_target) <= allowance and tpd_s <= tpd_max:
+                    passes += 1
+            mc_yield_pct = (passes / total_mc) * 100.0
 
         return CornerResult(
             passed=passed,
@@ -297,6 +372,8 @@ class CornerStage:
             mc_vm_std=mc_vm_std,
             mc_tpd_mean=mc_tpd_mean,
             mc_tpd_std=mc_tpd_std,
+            mc_vm_samples=vms,
+            mc_tpd_samples=tpds,
             corner_worst_vm=corner_worst_vm,
             corner_worst_tpd=corner_worst_tpd,
             details={
@@ -304,6 +381,7 @@ class CornerStage:
                 "tpd_sigma": tpd_sigma,
                 "corner_ok": corner_ok,
                 "mc_ok": mc_ok,
+                "mc_yield_pct": mc_yield_pct,
             },
         )
 
