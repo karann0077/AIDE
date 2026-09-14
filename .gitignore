@@ -1,4 +1,5 @@
 simulations/
+output/
 reports/
 run_log.jsonl
 .env
