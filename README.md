@@ -2,31 +2,48 @@
 
 # 🔬 AIDE — AI-Driven Analog Design Explorer
 
-**An autonomous analog IC sizing loop that closes the gap between a plain-English specification and a silicon-ready, reliability-verified design — using real LTspice as the simulation oracle.**
+# AIDE — AI-Driven Analog Design Explorer
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![LTspice](https://img.shields.io/badge/Simulator-LTspice-8B0000?style=flat-square)](https://www.analog.com/en/design-center/design-tools-and-calculators/ltspice-simulator.html)
-[![PyLTSpice](https://img.shields.io/badge/Automation-PyLTSpice-orange?style=flat-square)](https://pyltspice.readthedocs.io)
-[![Optuna](https://img.shields.io/badge/Optimizer-Optuna-blueviolet?style=flat-square)](https://optuna.org)
-[![Gemini](https://img.shields.io/badge/LLM-Gemini%20%7C%20GPT%20%7C%20Claude-4285F4?style=flat-square)](https://aistudio.google.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-</div>
+![Project Demo Placeholder](docs/demo_placeholder.png) *(Add a GIF or screenshot of the Copilot running here)*
+
+**AIDE** is an automated, AI-powered loop for LTspice. It acts as a **"Copilot for LTspice"** — you describe a circuit in plain English, and AIDE generates the netlist, validates it, and automatically tunes the transistor sizings to meet your specific performance targets (like delay, power, or voltage swing) using Bayesian Optimization.
+
+No more clicking around a schematic to manually tweak `W` and `L` values. No more trial-and-error simulation runs.
+
+## Features
+
+- 🧠 **AI Circuit Generation**: Describe what you want ("design a CMOS full adder, delay < 200ps"), and the LLM builds the raw SPICE code using verified building blocks.
+- 🔧 **Self-Healing Validation**: If the AI makes a SPICE syntax error, AIDE catches it in LTspice, reads the error log, and forces the AI to fix it before proceeding.
+- 🎯 **Headless Bayesian Sizing**: Uses Optuna to intelligently sweep design variables (Widths/Lengths) to find the absolute optimal sizing for your targets.
+- ⚡ **Mac/Windows Compatible**: Fully handles the quirks of macOS LTspice (UTF-16 logs, strict headless modes).
+- 💬 **Interactive Chat**: Refine your designs iteratively in a conversational interface.
 
 ---
 
-## What is AIDE?
+## Quickstart: The Copilot
 
-AIDE (AI-Driven Analog Design Explorer) is an **agentic design-sizing loop** for analog circuits. You give it a performance spec in plain English — *"Vm at half VDD, propagation delay under 200 ps at 1.8 V, robust from −40°C to 125°C"* — and it autonomously:
+The fastest way to use AIDE is via the AI Copilot.
 
-1. **Proposes** the next set of component sizes (transistor W/L ratios)
-2. **Edits** the LTspice netlist programmatically (no GUI, no hand-redraw)
-3. **Runs** real LTspice simulations in batch mode
-4. **Reads** the `.meas` results directly into Python
-5. **Scores** the result against the spec
-6. **Loops** until the design passes — then verifies it across Monte Carlo and PVT corners
+### 1. Set your API Key
+AIDE uses the new Google GenAI SDK (`gemini-3.6-flash` by default). Get a free key at [Google AI Studio](https://aistudio.google.com).
+Copy `.env.example` to `.env` and add your key:
+```bash
+GOOGLE_API_KEY=your_key_here
+```
 
-No human in the loop between iterations. No manual cursor-reading. No spreadsheets.
+### 2. Run the Copilot
+You can run it in single-shot mode:
+```bash
+python copilot.py "design a CMOS inverter, 1.8V, Vm at half VDD, propagation delay under 200ps"
+```
+
+Or run it without arguments for interactive chat mode:
+```bash
+python copilot.py
+```
 
 ---
 
@@ -227,7 +244,7 @@ budget:
   max_no_improve: 8
 
 llm:
-  model: "gemini-2.5-flash"
+  model: "gemini-3.6-flash"
   api_provider: "google"   # "google" | "openai" | "anthropic"
 ```
 

@@ -1,4 +1,7 @@
-# Agentic LTspice Design-Sizing Loop
+# =============================================================================
+# Spec loading
+PyYAML>=6.0
+
 # Core simulation automation
 PyLTSpice>=5.0
 
@@ -9,11 +12,13 @@ optuna>=3.6
 matplotlib>=3.8
 numpy>=1.26
 
-# Spec loading
-PyYAML>=6.0
+# LLM — Copilot + LLM engine (Gemini — free tier)
+google-generativeai>=0.7
 
-# LLM providers (install only the one you use)
-# google-generativeai>=0.7    # for Gemini
+# Terminal UI for copilot.py (optional but recommended)
+rich>=13.0
+
+# LLM providers (optional — install only the one you use)
 # openai>=1.30                # for GPT-4o
 # anthropic>=0.25             # for Claude
 
