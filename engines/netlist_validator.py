@@ -58,8 +58,8 @@ class NetlistValidator:
         for attempt in range(1, MAX_RETRIES + 1):
             logger.info("Validation attempt %d/%d ...", attempt, MAX_RETRIES)
 
-            dc_err   = self._run_one(dc_text,   "dc",   attempt)
-            tran_err = self._run_one(tran_text, "tran", attempt)
+            dc_err   = self._run_one(dc_text,   "dc",   attempt, intent)
+            tran_err = self._run_one(tran_text, "tran", attempt, intent)
 
             if dc_err is None and tran_err is None:
                 logger.info("✓ Both netlists validated successfully")
@@ -89,53 +89,88 @@ class NetlistValidator:
         raise NetlistValidationError("Unexpected exit from retry loop")
 
     # ------------------------------------------------------------------ #
-    def _run_one(self, netlist_text: str, suffix: str, attempt: int) -> str | None:
+    def _run_one(self, netlist_text: str, suffix: str, attempt: int, intent: dict) -> str | None:
         """
         Write netlist to temp file, run LTspice, return error string or None.
+        Now validates execution result and required measurements.
         """
         from PyLTSpice import LTspice
+        import math
+        from core.result_parser import extract_metrics
 
         path = self.work_dir / f"validate_{suffix}_a{attempt}.cir"
         path.write_text(netlist_text)
 
         try:
             import subprocess
-            exe = LTspice.spice_exe[0]
+            import sys
+            exe = LTspice.spice_exe[0] if isinstance(LTspice.spice_exe, list) and LTspice.spice_exe else LTspice.spice_exe
+            cmd = [exe, "-b", "-Run", str(path.resolve())] if sys.platform == "win32" else [exe, "-b", str(path.resolve())]
+            
             result = subprocess.run(
-                [exe, "-b", str(path)],
+                cmd,
                 timeout=TIMEOUT_S,
                 capture_output=True,
+                text=True,
             )
         except subprocess.TimeoutExpired:
             return f"LTspice timed out after {TIMEOUT_S}s"
         except Exception as exc:
             return f"Failed to launch LTspice: {exc}"
 
-        # Check for .raw file (success indicator)
         raw_path = path.with_suffix(".raw")
         stem1    = path.with_name(path.stem + "_1.raw")
-        if raw_path.exists() or stem1.exists():
-            return None   # success
-
-        # No .raw → read log for error
         log_path = path.with_suffix(".log")
         log1     = path.with_name(path.stem + "_1.log")
+        
+        has_raw = raw_path.exists() or stem1.exists()
         lp = log1 if log1.exists() else log_path
+
+        # Even if raw exists, check if process failed
+        log_errors = []
         if lp.exists():
             raw_bytes = lp.read_bytes()
             try:
-                log_text = raw_bytes.decode("utf-16-le", errors="replace")
+                log_text = raw_bytes.decode("utf-16-le", errors="strict")
             except Exception:
                 log_text = raw_bytes.decode("utf-8", errors="replace")
             # Extract error lines
-            errors = [
+            log_errors = [
                 line.strip() for line in log_text.splitlines()
                 if any(kw in line.lower() for kw in
                        ("error", "fatal", "undefined", "questionable", "aborted"))
             ]
-            return "\n".join(errors[:10]) if errors else "Unknown error (no .raw produced)"
+            
+        if result.returncode != 0 or not has_raw or log_errors:
+            err_msg = []
+            if result.returncode != 0:
+                err_msg.append(f"LTspice execution failed with return code {result.returncode}")
+            if not has_raw:
+                err_msg.append("No .raw file produced.")
+            if log_errors:
+                err_msg.append("Log errors:\n" + "\n".join(log_errors[:10]))
+            if result.stderr:
+                err_msg.append("Stderr:\n" + result.stderr.strip()[:500])
+            return "\n\n".join(err_msg)
 
-        return "LTspice produced no output files"
+        # Check measurements semantics
+        if suffix == "dc":
+            req_meas = set(intent.get("meas_dc", []))
+            metrics = extract_metrics(dc_log=lp, tran_log=None)
+        else:
+            req_meas = set(intent.get("meas_tran", []))
+            metrics = extract_metrics(dc_log=None, tran_log=lp)
+            
+        meas_errors = []
+        for name in req_meas:
+            val = metrics.get(name)
+            if val is None or not math.isfinite(val):
+                meas_errors.append(f"Measurement '{name}' is missing or non-finite: {val}")
+                
+        if meas_errors:
+            return "Measurement validation failed:\n" + "\n".join(meas_errors)
+
+        return None
 
     # ------------------------------------------------------------------ #
     def _llm_fix(
