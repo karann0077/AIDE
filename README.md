@@ -255,12 +255,12 @@ llm:
 | # | Milestone | What it proves |
 |---|---|---|
 | **M1** | Manual harness — edit → simulate → parse | Plumbing works end-to-end |
-| **M2** | Closed loop with Optuna BayesOpt | Automation: converges without any AI |
-| **M3** | LLM agent engine (same interface, drop-in swap) | Agentic: reasons about *why* to change values |
-| **M4** | Reliability outer loop (MC + PVT) | Production-readiness: passes corners, not just nominal |
-| **M5** | JSONL logging + 6-panel report | Reproducibility: full audit trail of every decision |
+| **M2** | Bayesian inner loop | Converges quickly on parameter sizing |
+| **M3** | LLM agent inner loop | Intelligent optimization when simple math fails |
+| **M4** | Reliability outer loop | Validated Monte Carlo + PVT robustness analysis |
+| **M5** | Final verification | Output generation and interactive terminal reporting |
 
-All five milestones are **complete and tested**.
+All five milestones are complete and tested.
 
 ---
 

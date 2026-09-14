@@ -113,11 +113,14 @@ def plot_convergence(iters: list[dict], ax: plt.Axes) -> None:
 def plot_sizing(iters: list[dict], ax: plt.Axes) -> None:
     if not iters:
         return
-    vars_of_interest = ["mn1_w", "mp1_w"]
+    
+    # Get dynamic list of variables from the first iteration
+    vars_of_interest = list(iters[0]["values"].keys())[:4]  # Plot up to 4 vars
+    
     colors = [PALETTE["accent1"], PALETTE["accent3"], PALETTE["accent4"], PALETTE["accent2"]]
     x = list(range(1, len(iters) + 1))
 
-    for var, color in zip(vars_of_interest, colors):
+    for var, color in zip(vars_of_interest, colors + [PALETTE["text"]] * 10):
         ys = [it["values"].get(var, float("nan")) * 1e6 for it in iters]  # → µm
         ax.plot(x, ys, "o-", color=color, alpha=0.85, label=f"{var} (µm)", markersize=4)
 
@@ -173,17 +176,14 @@ def plot_mc_histogram(reliability: list[dict], ax: plt.Axes) -> None:
     rel = reliability[-1]
     mean = rel.get("mc_vm_mean", float("nan"))
     std = rel.get("mc_vm_std", float("nan"))
+    samples = np.asarray(rel.get("mc_vm_samples", []), dtype=float)
 
-    if math.isnan(mean) or math.isnan(std) or std == 0:
+    if math.isnan(mean) or math.isnan(std) or std == 0 or samples.size == 0:
         ax.text(0.5, 0.5, "MC data unavailable", transform=ax.transAxes,
                 ha="center", va="center", color=PALETTE["text"])
         return
 
-    # Simulate distribution (actual histogram would need per-run data)
-    rng = np.random.default_rng(42)
-    samples = rng.normal(mean, std, 1000)
-
-    ax.hist(samples, bins=50, color=PALETTE["accent1"], alpha=0.75, edgecolor="none", label="MC samples")
+    ax.hist(samples, bins=max(10, min(50, len(samples)//4)), color=PALETTE["accent1"], alpha=0.75, edgecolor="none", label=f"MC samples (N={len(samples)})")
 
     # ±3σ lines
     for sigma, style in [(-3, ":"), (-2, "--"), (2, "--"), (3, ":")]:
