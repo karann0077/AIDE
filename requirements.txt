@@ -1,30 +1,23 @@
 # =============================================================================
 # Spec loading
-PyYAML>=6.0
+PyYAML==6.0.2
 
 # Core simulation automation
-PyLTSpice>=5.0
+PyLTSpice==5.4.3
 
 # Classical optimizer (M2)
-optuna>=3.6
+optuna==4.5.0
 
 # Plotting
-matplotlib>=3.8
-numpy>=1.26
+matplotlib==3.10.6
+numpy==2.3.3
 
-# LLM — Copilot + LLM engine (Gemini — free tier)
-google-generativeai>=0.7
+# LLM — Copilot + LLM engine (Google GenAI SDK)
+google-genai==1.35.0
 
-# Terminal UI for copilot.py (optional but recommended)
-rich>=13.0
-
-# LLM providers (optional — install only the one you use)
-# openai>=1.30                # for GPT-4o
-# anthropic>=0.25             # for Claude
+# Terminal UI for copilot.py
+rich==14.1.0
 
 # Testing
-pytest>=8.0
-pytest-cov>=5.0
-
-# Optional: pandas for post-run log analysis
-# pandas>=2.0
+pytest==8.4.2
+pytest-cov==7.0.0

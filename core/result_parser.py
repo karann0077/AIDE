@@ -49,17 +49,19 @@ _TRAN_MEAS_RE = re.compile(
 
 
 def _read_log(log_path: Optional[Path]) -> str:
-    """Read an LTspice log, handling UTF-16-LE encoding used on Mac."""
+    """Read an LTspice log, handling UTF-16-LE encoding used on Mac deterministically."""
     if log_path is None or not log_path.exists():
         return ""
-    raw_bytes = log_path.read_bytes()
-    # Detect UTF-16-LE BOM (FF FE) or try it anyway for LTspice Mac logs
-    if raw_bytes[:2] in (b'\xff\xfe', b'\xfe\xff'):
-        return raw_bytes.decode("utf-16", errors="replace")
-    try:
-        return raw_bytes.decode("utf-16-le", errors="replace")
-    except Exception:
-        return raw_bytes.decode("utf-8", errors="replace")
+    raw = log_path.read_bytes()
+    if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+        return raw.decode("utf-16", errors="strict")
+    # Heuristic for UTF-16 without BOM
+    if b"\x00" in raw[:200]:
+        try:
+            return raw.decode("utf-16-le", errors="strict")
+        except UnicodeDecodeError:
+            pass
+    return raw.decode("utf-8", errors="replace")
 
 
 def _parse_log(log_text: str, wanted: set[str], regex: re.Pattern) -> dict[str, float]:
@@ -119,3 +121,40 @@ def extract_metrics(
         merged["tpd"] = float("nan")
 
     return merged
+
+
+def parse_log(log_path: Path) -> dict[str, float]:
+    """
+    Parse an LTspice log and return all supported metrics.
+    Attempts both DC and TRAN measurement formats and computes tpd from tphl/tplh when available.
+    """
+    metrics: dict[str, float] = {}
+    if not log_path or not log_path.exists():
+        logger.warning("Log file does not exist: %s", log_path)
+        return metrics
+
+    text = _read_log(log_path)
+    
+    # DC-style measurements
+    for m in _DC_MEAS_RE.finditer(text):
+        name = m.group("name").lower()
+        try:
+            metrics[name] = float(m.group("value"))
+        except ValueError:
+            continue
+
+    # TRAN-style measurements
+    for m in _TRAN_MEAS_RE.finditer(text):
+        name = m.group("name").lower()
+        try:
+            metrics[name] = float(m.group("value"))
+        except ValueError:
+            continue
+
+    # Derived propagation delay
+    tphl = metrics.get("tphl")
+    tplh = metrics.get("tplh")
+    if tphl is not None and tplh is not None:
+        metrics["tpd"] = (abs(tphl) + abs(tplh)) / 2.0
+        
+    return metrics

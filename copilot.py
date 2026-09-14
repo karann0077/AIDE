@@ -437,9 +437,15 @@ class CopilotSession:
     designs across multiple turns.
     """
 
-    def __init__(self, engine: str = "bayes", output_root: str = "output") -> None:
+    def __init__(
+        self,
+        engine: str = "bayes",
+        output_root: str = "output",
+        with_reliability: bool = False,
+    ) -> None:
         self.engine = engine
         self.output_root = output_root
+        self.with_reliability = with_reliability
         self.history: list[dict] = []
 
     def chat(self, prompt: str) -> dict:
@@ -447,6 +453,7 @@ class CopilotSession:
             prompt=prompt,
             engine=self.engine,
             output_root=self.output_root,
+            skip_reliability=not self.with_reliability,
             chat_history=self.history,
         )
         self.history.append({
@@ -514,7 +521,11 @@ def main() -> None:
         _info("Get a free key at: https://aistudio.google.com")
         sys.exit(1)
 
-    session = CopilotSession(engine=args.engine, output_root=args.output)
+    session = CopilotSession(
+        engine=args.engine,
+        output_root=args.output,
+        with_reliability=args.with_reliability,
+    )
 
     if args.prompt:
         # ── Single-shot mode ───────────────────────────────────────────────
