@@ -45,7 +45,37 @@ For example, a specification such as:
 
 > **Design a CMOS inverter with VDD = 1.8 V, switching point near 0.5×VDD, and propagation delay below 200 ps.**
 
-can be passed directly to the copilot. The specification layer in `spec.yaml` defines the circuit, search bounds, targets, PVT corners, Monte Carlo tolerance, and optimization budget. fileciteturn10file0
+can be passed directly to the copilot. The specification layer in `spec.yaml` defines the circuit, search bounds, targets, PVT corners, Monte Carlo tolerance, and optimization budget.
+
+---
+
+## 📸 See It In Action
+
+The screenshots below follow the **actual execution order of AIDE**: the user first provides the design prompt in the terminal, AIDE processes and optimizes the design, LTspice performs the circuit simulation, and the final optimized results are produced.
+
+### 1. 📝 Define the Design Prompt — Terminal
+
+![AIDE terminal prompt](screenshots/terminal1.png)
+
+The workflow starts with a natural-language analog design specification entered directly into the terminal.
+
+### 2. 🤖 Agentic Design & Optimization — Terminal
+
+![AIDE optimization process](screenshots/terminal2.png)
+
+AIDE interprets the specification, generates or edits the SPICE design, validates candidates, and iteratively searches for transistor sizes that satisfy the requested objectives.
+
+### 3. ⚡ Circuit Simulation — LTspice
+
+![LTspice simulation](screenshots/ltspice.png)
+
+LTspice is the physics and measurement backend. AIDE invokes the simulator, extracts the required circuit metrics, and uses those measurements to drive the optimization loop.
+
+### 4. 📊 Final Optimized Output
+
+![AIDE final output](screenshots/output.png)
+
+The workflow concludes with the optimized design results and the performance/reliability analysis generated from the simulation data.
 
 ---
 
@@ -79,91 +109,59 @@ Candidate device sizes
 ### 🧪 4. PVT + Monte Carlo robustness testing
 After optimization, AIDE evaluates the selected design across configurable temperature and supply corners and runs statistical variation experiments to estimate robustness and yield.
 
-The current example specification evaluates **−40°C, 27°C, and 125°C** with **VDD ±10%**, together with a **10% device-tolerance Monte Carlo target**. fileciteturn10file0
+The current example specification evaluates **−40°C, 27°C, and 125°C** with **VDD ±10%**, together with a **10% device-tolerance Monte Carlo target**.
 
 ### 📊 5. Automated reporting
 The final stage produces visual summaries of the optimization process and reliability analysis so that the engineer can inspect convergence and final performance without manually collecting simulation results.
 
 ---
 
-## 🖥️ Screenshots
-
-### 1. LTspice simulation
-
-![LTspice simulation](screenshots/ltspice.png)
-
-The LTspice view shows the actual circuit simulation used as the physics/measurement backend. **AIDE does not replace the simulator; it automates the surrounding design loop.**
-
-### 2. Optimization / terminal workflow
-
-![Optimization workflow](screenshots/terminal1.png)
-
-This view shows the agentic optimization process as AIDE iterates over candidate device sizes, evaluates the simulated metrics, and searches toward the target.
-
-### 3. Optimization progress
-
-![Optimization progress](screenshots/terminal2.png)
-
-AIDE exposes the iterative search so the optimization process is observable rather than being a black box.
-
-### 4. Final output / report
-
-![AIDE output](screenshots/output.png)
-
-The generated output summarizes the final candidate and the measured performance used to decide whether the design satisfies the requested specification.
-
----
-
-## 🧠 Architecture
+## 🧠 How It Works
 
 ```text
-                           ┌──────────────────────┐
-                           │ Natural Language Spec│
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │   LLM Agent / Parser  │
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │   SPICE Netlist       │
-                           │ Generation / Editing  │
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │ Semantic + Netlist   │
-                           │      Validation      │
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │      LTspice          │
-                           │   Simulation Engine   │
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │ Result / Metric Parser│
-                           └──────────┬───────────┘
-                                      ↓
-                    ┌─────────────────┴─────────────────┐
-                    ↓                                   ↓
-          ┌──────────────────┐                ┌──────────────────┐
-          │ Bayesian Optuna  │                │    LLM Engine    │
-          │    Optimizer     │                │  (alternative)   │
-          └────────┬─────────┘                └────────┬─────────┘
-                   └─────────────────┬─────────────────┘
-                                     ↓
-                           ┌──────────────────────┐
-                           │ Best Design Candidate│
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │      PVT / MC         │
-                           │ Reliability Analysis │
-                           └──────────┬───────────┘
-                                      ↓
-                           ┌──────────────────────┐
-                           │     Final Report      │
-                           └──────────────────────┘
+                         Natural Language Prompt
+                                  ↓
+                         ┌─────────────────┐
+                         │    LLM Agent    │
+                         │ Spec + Circuit  │
+                         │   Generation    │
+                         └────────┬────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │ Netlist / SPICE │
+                         │    Validation   │
+                         └────────┬────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │     LTspice     │
+                         │    Simulation   │
+                         └────────┬────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │ Result / Metric │
+                         │     Parser      │
+                         └────────┬────────┘
+                                  ↓
+                    ┌─────────────┴─────────────┐
+                    ↓                           ↓
+             ┌──────────────┐           ┌──────────────┐
+             │   Optuna /   │           │  LLM Engine  │
+             │ Bayesian Opt │           │  Alternative │
+             └──────┬───────┘           └──────┬───────┘
+                    └─────────────┬────────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │ Best Candidate  │
+                         └────────┬────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │   PVT + Monte   │
+                         │     Carlo       │
+                         └────────┬────────┘
+                                  ↓
+                         ┌─────────────────┐
+                         │  Final Report   │
+                         └─────────────────┘
 ```
 
 ### Core implementation layers
@@ -177,7 +175,7 @@ The generated output summarizes the final candidate and the measured performance
 | `report.py` | Automated result/report generation |
 | `spec.yaml` | Single source of truth for circuit target, variables, limits, corners, and run budget |
 
-The repository is deliberately modular so that the simulator, optimizer, circuit generator, validators, and reliability stages can evolve independently. fileciteturn9file0
+The repository is deliberately modular so that the simulator, optimizer, circuit generator, validators, and reliability stages can evolve independently.
 
 ---
 
@@ -235,7 +233,7 @@ target:
   vdd_nominal: 1.8
 ```
 
-and exposes transistor width/length bounds to the optimization engine. fileciteturn10file0
+and exposes transistor width/length bounds to the optimization engine.
 
 This makes the workflow **specification-driven** instead of hard-coding a single transistor-sizing experiment.
 
@@ -317,21 +315,21 @@ Repeat
 AIDE closes that loop:
 
 ```text
-Specification
-      ↓
-     AIDE
-      ↓
-Candidate generation
-      ↓
-Simulation
-      ↓
-Measurement
-      ↓
-Optimization
-      ↓
-Reliability validation
-      ↓
-Final design
+Natural-language specification
+             ↓
+          AIDE Agent
+             ↓
+       Circuit generation
+             ↓
+        LTspice simulation
+             ↓
+       Metric extraction
+             ↓
+          Optimization
+             ↓
+     PVT + Monte Carlo
+             ↓
+        Final design
 ```
 
 That makes AIDE less like a chatbot and more like a **design-space exploration and automation framework around LTspice**.
