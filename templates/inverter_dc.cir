@@ -1,0 +1,25 @@
+* CMOS Inverter — DC Analysis (Vm measurement)
+* ==============================================
+* Run separately to get Vm (switching threshold)
+
+.param mn1_w=2u mn1_l=180n mp1_w=4u mp1_l=180n
+
+VDD vdd 0 DC 1.8
+VIN in 0 DC 0
+
+MP1 out in vdd vdd PMOS W={mp1_w} L={mp1_l}
+MN1 out in 0   0   NMOS W={mn1_w} L={mn1_l}
+CL  out 0 10f
+
+.model NMOS NMOS (LEVEL=3 TOX=4e-9 VTO=0.5 UO=450 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+.model PMOS PMOS (LEVEL=3 TOX=4e-9 VTO=-0.5 UO=150 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+
+.DC VIN 0 1.8 0.005
+
+* Vm: where Vout = Vin
+.meas DC vm FIND V(out) WHEN V(out)=V(in)
+
+.backanno
+.end

@@ -1,0 +1,57 @@
+* CMOS Inverter — Parametrized Netlist for Agentic Sizing Loop
+* =============================================================
+* PyLTSpice edits the .param values before each simulation run.
+* .meas statements compute Vm, tpd, tpHL, tpLH — Python reads these.
+
+.param mn1_w=2u mn1_l=180n mp1_w=4u mp1_l=180n
+
+* Supply
+VDD vdd 0 DC 1.8
+
+* Input pulse for transient
+VIN in 0 PULSE(0 1.8 1n 50p 50p 4n 10n)
+
+* PMOS  drain=out  gate=in  source=vdd  bulk=vdd
+MP1 out in vdd vdd PMOS W={mp1_w} L={mp1_l}
+
+* NMOS  drain=out  gate=in  source=0  bulk=0
+MN1 out in 0   0   NMOS W={mn1_w} L={mn1_l}
+
+* Load capacitor (fan-out-of-2 estimate)
+CL out 0 10f
+
+* ---------------------------------------------------------------
+* Generic 180 nm model cards (built-in — no external PDK needed)
+* Replace with your PDK .lib if you have one:
+*   .lib "path/to/your/pdk.lib" tt
+* ---------------------------------------------------------------
+.model NMOS NMOS (LEVEL=3 TOX=4e-9 VTO=0.5 UO=450 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+.model PMOS PMOS (LEVEL=3 TOX=4e-9 VTO=-0.5 UO=150 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+
+* ---------------------------------------------------------------
+* Analyses
+* ---------------------------------------------------------------
+.DC VIN 0 1.8 0.005
+
+.TRAN 1p 20n
+
+* ---------------------------------------------------------------
+* Measurements — LTspice computes these; Python only reads results
+* ---------------------------------------------------------------
+
+* Vm: DC switching threshold (Vout = Vin crossing)
+.meas DC vm FIND V(out) WHEN V(out)=V(in)
+
+* tpHL: rising Vin → falling Vout  (50% → 50%)
+.meas TRAN tphl TRIG V(in)  VAL=0.9 RISE=1 TARG V(out) VAL=0.9 FALL=1
+
+* tpLH: falling Vin → rising Vout
+.meas TRAN tplh TRIG V(in)  VAL=0.9 FALL=1 TARG V(out) VAL=0.9 RISE=1
+
+* Average propagation delay
+.meas TRAN tpd PARAM='(abs(tphl)+abs(tplh))/2'
+
+.backanno
+.end

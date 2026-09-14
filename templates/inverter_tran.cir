@@ -1,0 +1,31 @@
+* CMOS Inverter — Transient Analysis (tpd measurement)
+* =====================================================
+* Run separately to get tpHL, tpLH, tpd
+
+.param mn1_w=2u mn1_l=180n mp1_w=4u mp1_l=180n
+
+VDD vdd 0 DC 1.8
+VIN in 0 PULSE(0 1.8 1n 50p 50p 4n 10n)
+
+MP1 out in vdd vdd PMOS W={mp1_w} L={mp1_l}
+MN1 out in 0   0   NMOS W={mn1_w} L={mn1_l}
+CL  out 0 10f
+
+.model NMOS NMOS (LEVEL=3 TOX=4e-9 VTO=0.5 UO=450 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+.model PMOS PMOS (LEVEL=3 TOX=4e-9 VTO=-0.5 UO=150 THETA=0.1
++ KAPPA=0.3 ETA=0.01 NSUB=1e17 LD=5n WD=5n)
+
+.TRAN 1p 20n
+
+* tpHL: rising Vin 50% -> falling Vout 50%
+.meas TRAN tphl TRIG V(in)  VAL=0.9 RISE=1 TARG V(out) VAL=0.9 FALL=1
+
+* tpLH: falling Vin 50% -> rising Vout 50%
+.meas TRAN tplh TRIG V(in)  VAL=0.9 FALL=1 TARG V(out) VAL=0.9 RISE=1
+
+* NOTE: tpd is computed in Python as (abs(tphl)+abs(tplh))/2
+* because LTspice Mac rejects .meas PARAM referencing other .meas values
+
+.backanno
+.end

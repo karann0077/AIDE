@@ -1,0 +1,79 @@
+# =============================================================================
+# Spec Definition Layer — single source of truth
+# Edit this file to change the design target; the rest of the system adapts.
+# =============================================================================
+
+circuit:
+  name: "CMOS Inverter"
+  template_dc:   "templates/inverter_dc.cir"    # DC sweep → Vm
+  template_tran: "templates/inverter_tran.cir"  # Transient → tpd
+  description: >
+    Design a CMOS inverter with symmetric switching point (Vm ≈ 0.5×VDD),
+    propagation delay under 0.2 ns at 1.8 V, and robust operation from
+    −40°C to 125°C.
+
+# --------------------------------------------------------------------------
+# Design Variables — search space bounds for the optimizer/LLM engine
+# --------------------------------------------------------------------------
+design_variables:
+  mn1_w:          # NMOS width
+    min:  0.2e-6  # 200 nm
+    max: 20.0e-6  # 20 µm
+    init: 2.0e-6  # starting guess
+    unit: "m"
+  mn1_l:          # NMOS length
+    min: 0.18e-6
+    max:  2.0e-6
+    init: 0.18e-6
+    unit: "m"
+  mp1_w:          # PMOS width
+    min:  0.2e-6
+    max: 40.0e-6
+    init: 4.0e-6
+    unit: "m"
+  mp1_l:          # PMOS length
+    min: 0.18e-6
+    max:  2.0e-6
+    init: 0.18e-6
+    unit: "m"
+
+# --------------------------------------------------------------------------
+# Performance Targets — machine-checkable
+# --------------------------------------------------------------------------
+target:
+  vm_ratio: 0.5          # Vm / VDD  (want exactly 0.5 for symmetric switching)
+  vm_tolerance: 0.05     # ±5% from ideal → |Vm/VDD − 0.5| ≤ 0.05
+  tpd_max_ns: 0.20       # propagation delay max 200 ps
+  vdd_nominal: 1.8       # volts
+
+# --------------------------------------------------------------------------
+# PVT Corners
+# --------------------------------------------------------------------------
+corners:
+  temp_c:   [-40, 27, 125]
+  vdd_pct:  [-10,  0,  10]    # VDD ± 10%
+  tolerance_pct: 10            # device tolerance for Monte Carlo
+
+# --------------------------------------------------------------------------
+# Loop Budget
+# --------------------------------------------------------------------------
+budget:
+  max_iterations: 40
+  max_no_improve: 8            # stop if no improvement for N consecutive iters
+  parallel_sims: 2             # simultaneous LTspice processes
+
+# --------------------------------------------------------------------------
+# LLM Engine Settings (used only when --engine llm is selected)
+# --------------------------------------------------------------------------
+llm:
+  model: "gemini-2.5-flash"   # or "gpt-4o", "claude-3-5-sonnet-20241022"
+  api_provider: "google"       # "google" | "openai" | "anthropic"
+  history_window: 5            # last N iterations fed to the LLM
+  temperature: 0.3
+
+# --------------------------------------------------------------------------
+# Reporting
+# --------------------------------------------------------------------------
+reporting:
+  log_file: "run_log.jsonl"
+  report_dir: "reports/"

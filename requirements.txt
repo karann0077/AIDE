@@ -1,0 +1,25 @@
+# Agentic LTspice Design-Sizing Loop
+# Core simulation automation
+PyLTSpice>=5.0
+
+# Classical optimizer (M2)
+optuna>=3.6
+
+# Plotting
+matplotlib>=3.8
+numpy>=1.26
+
+# Spec loading
+PyYAML>=6.0
+
+# LLM providers (install only the one you use)
+# google-generativeai>=0.7    # for Gemini
+# openai>=1.30                # for GPT-4o
+# anthropic>=0.25             # for Claude
+
+# Testing
+pytest>=8.0
+pytest-cov>=5.0
+
+# Optional: pandas for post-run log analysis
+# pandas>=2.0
