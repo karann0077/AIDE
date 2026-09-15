@@ -43,7 +43,6 @@ Natural-language design request
          Final report
 ```
 
-The important detail is that **the user-facing design requirements come from the prompt**. AIDE's newer `copilot.py` workflow parses the prompt into a runtime `DynamicSpec`; the root `spec.yaml` is retained as a legacy/manual orchestration configuration and is not required for the normal prompt-driven Copilot flow.
 
 For example:
 
